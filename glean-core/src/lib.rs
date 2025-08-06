@@ -79,6 +79,7 @@ pub use crate::metrics::{
     UrlMetric, UuidMetric,
 };
 pub use crate::upload::{PingRequest, PingUploadTask, UploadResult, UploadTaskAction};
+use crate::storage::StorageManager;
 
 const GLEAN_VERSION: &str = env!("CARGO_PKG_VERSION");
 const GLEAN_SCHEMA_VERSION: u32 = 1;
@@ -1318,6 +1319,42 @@ pub fn glean_update_distribution(distribution: DistributionMetrics) {
     }
 }
 
+/// Get the list of metric names that will be sent out on a particular ping.
+/// Returns `None` if the ping cannot be found or Glean is not available.
+pub fn glean_get_ping_metric_names(ping_name: String) -> Option<Vec<String>> {
+    let mut metric_names = Vec::new();
+    core::with_glean(|glean| {
+        if let Some(ping) = glean.get_ping_by_name(&ping_name) {
+            match StorageManager.snapshot_as_json(glean.storage(), ping.name(), false) {
+                Some(metrics_data) => {
+                    match serde_json::from_value::<HashMap<String, HashMap<String, JsonValue>>>(metrics_data) {
+                        Ok(v) => {
+                            for (k, v) in v.iter() {
+                                for (l, w) in v {
+                                    if let Some(w) = w.as_object() {
+                                        w.contains_key("name");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::info!("Unable to convert object {}", e);
+                        }
+                    }
+                }
+                None => {
+                    log::info!("metrics_data returned None")
+                }
+            }
+
+            let events_data = glean
+                .event_storage()
+                .snapshot_as_json(glean, ping.name(), false);
+            Some(metric_names)
+        } else { return None }
+    })
+}
+
 /// **TEST-ONLY Method**
 ///
 /// Returns the current distribution metrics.
@@ -1394,6 +1431,7 @@ mod ffi {
     });
 }
 pub use ffi::*;
+use crate::metrics::JsonValue;
 
 // Split unit tests to a separate file, to reduce the file of this one.
 #[cfg(test)]

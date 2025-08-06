@@ -1614,3 +1614,53 @@ fn test_attribution_and_distribution_updates_before_glean_inits() {
     assert_eq!(attribution, test_get_attribution());
     assert_eq!(distribution_update, test_get_distribution());
 }
+
+#[test]
+fn test_() {
+    let _lock = lock_test();
+
+    let (s, r) = crossbeam_channel::bounded::<String>(1);
+
+    #[derive(Debug)]
+    pub struct FakeUploader {
+        sender: crossbeam_channel::Sender<String>,
+    }
+    impl net::PingUploader for FakeUploader {
+        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
+            let upload_request = upload_request.capable(|_| true).unwrap();
+            self.sender.send(upload_request.url).unwrap();
+            net::UploadResult::http_status(200)
+        }
+    }
+
+    // Create a custom configuration to use a fake uploader.
+    let dir = tempfile::tempdir().unwrap();
+    let tmpname = dir.path().to_path_buf();
+
+    let ping_schedule = HashMap::from([("baseline".to_string(), vec!["ride-along".to_string()])]);
+
+    let cfg = ConfigurationBuilder::new(true, tmpname, GLOBAL_APPLICATION_ID)
+        .with_server_endpoint("invalid-test-host")
+        .with_uploader(FakeUploader { sender: s })
+        .with_ping_schedule(ping_schedule)
+        .build();
+
+    let _t = new_glean(Some(cfg), true);
+
+    const PING_NAME: &str = "test-ping";
+    let custom_ping = new_test_ping(PING_NAME);
+
+    let boolean_metric = BooleanMetric::new(CommonMetricData {
+        name: "boolean".to_string(),
+        category: "test".to_string(),
+        send_in_pings: vec![PING_NAME.into()],
+        lifetime: Lifetime::Ping,
+        disabled: false,
+        dynamic_label: None,
+    });
+    boolean_metric.set(true);
+
+    custom_ping.submit(None);
+    let metric_names = glean_core::glean_get_ping_metric_names(PING_NAME.into());
+    assert!(metric_names.is_some());
+}
