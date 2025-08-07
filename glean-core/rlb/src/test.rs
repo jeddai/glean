@@ -11,7 +11,6 @@ use crossbeam_channel::RecvTimeoutError;
 use flate2::read::GzDecoder;
 use glean_core::{glean_test_get_experimentation_id, DynamicLabelType, LabeledCounter};
 use serde_json::Value as JsonValue;
-
 use crate::private::PingType;
 use crate::private::{
     BooleanMetric, CounterMetric, DualLabeledCounterMetric, EventMetric, StringMetric, TextMetric,
@@ -1619,36 +1618,9 @@ fn test_attribution_and_distribution_updates_before_glean_inits() {
 fn test_() {
     let _lock = lock_test();
 
-    let (s, r) = crossbeam_channel::bounded::<String>(1);
-
-    #[derive(Debug)]
-    pub struct FakeUploader {
-        sender: crossbeam_channel::Sender<String>,
-    }
-    impl net::PingUploader for FakeUploader {
-        fn upload(&self, upload_request: net::CapablePingUploadRequest) -> net::UploadResult {
-            let upload_request = upload_request.capable(|_| true).unwrap();
-            self.sender.send(upload_request.url).unwrap();
-            net::UploadResult::http_status(200)
-        }
-    }
-
-    // Create a custom configuration to use a fake uploader.
-    let dir = tempfile::tempdir().unwrap();
-    let tmpname = dir.path().to_path_buf();
-
-    let ping_schedule = HashMap::from([("baseline".to_string(), vec!["ride-along".to_string()])]);
-
-    let cfg = ConfigurationBuilder::new(true, tmpname, GLOBAL_APPLICATION_ID)
-        .with_server_endpoint("invalid-test-host")
-        .with_uploader(FakeUploader { sender: s })
-        .with_ping_schedule(ping_schedule)
-        .build();
-
-    let _t = new_glean(Some(cfg), true);
-
-    const PING_NAME: &str = "test-ping";
-    let custom_ping = new_test_ping(PING_NAME);
+    let _t = new_glean(None, true);
+    const PING_NAME: &str = "store1";
+    let _ping = new_test_ping(PING_NAME);
 
     let boolean_metric = BooleanMetric::new(CommonMetricData {
         name: "boolean".to_string(),
@@ -1660,7 +1632,8 @@ fn test_() {
     });
     boolean_metric.set(true);
 
-    custom_ping.submit(None);
-    let metric_names = glean_core::glean_get_ping_metric_names(PING_NAME.into());
-    assert!(metric_names.is_some());
+    let metric_names = glean_core::glean_get_ping_metric_names(PING_NAME.into()).unwrap();
+
+    assert_eq!(1, metric_names.len());
+    assert_eq!("test.boolean", metric_names[0]);
 }

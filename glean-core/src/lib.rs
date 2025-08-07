@@ -1325,31 +1325,23 @@ pub fn glean_get_ping_metric_names(ping_name: String) -> Option<Vec<String>> {
     let mut metric_names = Vec::new();
     core::with_glean(|glean| {
         if let Some(ping) = glean.get_ping_by_name(&ping_name) {
-            match StorageManager.snapshot_as_json(glean.storage(), ping.name(), false) {
-                Some(metrics_data) => {
-                    match serde_json::from_value::<HashMap<String, HashMap<String, JsonValue>>>(metrics_data) {
-                        Ok(v) => {
-                            for (k, v) in v.iter() {
-                                for (l, w) in v {
-                                    if let Some(w) = w.as_object() {
-                                        w.contains_key("name");
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::info!("Unable to convert object {}", e);
-                        }
+            if let Some(metrics_data) = StorageManager.snapshot_as_json(glean.storage(), ping.name(), false) {
+                for (_typ, metrics) in metrics_data.as_object().unwrap() {
+                    for (metric_name, _metric_value) in metrics.as_object().unwrap() {
+                        metric_names.push(metric_name.clone());
                     }
-                }
-                None => {
-                    log::info!("metrics_data returned None")
                 }
             }
 
-            let events_data = glean
-                .event_storage()
-                .snapshot_as_json(glean, ping.name(), false);
+            // if let Some(events_data) = glean
+            //     .event_storage()
+            //     .snapshot_as_json(glean, ping.name(), false) {
+            //     for event in events_data.as_array().unwrap() {
+            //         let event_obj = event.as_object().unwrap();
+            //         metric_names.push(format!("{}.{}", event_obj["category"].to_string(), event_obj["name"].to_string()));
+            //     }
+            // }
+
             Some(metric_names)
         } else { return None }
     })
@@ -1431,7 +1423,6 @@ mod ffi {
     });
 }
 pub use ffi::*;
-use crate::metrics::JsonValue;
 
 // Split unit tests to a separate file, to reduce the file of this one.
 #[cfg(test)]
